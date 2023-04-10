@@ -46,7 +46,7 @@ def simulated_annealing(s0,operator):
             if random.random() < 0.8:
                 incumbent = new_sol
             deltas.append(delta)
-    if len(deltas) !=0:
+    if deltas:
         delta_avg = mean(deltas)
     else:
         print("Got no deltas")
@@ -67,21 +67,20 @@ def simulated_annealing(s0,operator):
                 best_sol = incumbent
         elif Feasable and random.random() < math.exp(-delta/temp):
             incumbent = new_sol
-            print(incumbent)
             cost_incumbent = cost(incumbent)
         temp *= alfa
     return best_sol
 
 
-def simulated_annealing_multiple_ops(s0,operators):
-    T_final = 0.5
+def simulated_annealing_multiple_ops(s0,operators,weights):
+    T_final = 5
     best_sol = s0
     incumbent = s0
     deltas = []
 
     # find temps
     for _ in range(0,100):
-        operator = random.choice(operators)
+        operator = random.choices(operators,weights)[0]
         new_sol = operator(incumbent)
         cost_incumbent = cost(incumbent)
         delta = cost(new_sol) - cost_incumbent
@@ -93,19 +92,19 @@ def simulated_annealing_multiple_ops(s0,operators):
             if random.random() < 0.8:
                 incumbent = new_sol
             deltas.append(delta)
-    if len(deltas) !=0:
+    if deltas:
         delta_avg = mean(deltas)
     else:
         print("got no deltas")
         delta_avg = 10000
 
-    T_start = -delta_avg/math.log(0.7)
+    T_start = -delta_avg/math.log(0.8)
     alfa = (T_final/T_start)**(1/9990)
 
     temp = T_start
     cost_incumbent = cost(incumbent)
     for _ in range(9990):
-        operator = random.choice(operators)
+        operator = random.choices(operators,weights)[0]
         new_sol = operator(incumbent)
         delta = cost(new_sol) - cost_incumbent
         Feasable = isFeasable(new_sol)

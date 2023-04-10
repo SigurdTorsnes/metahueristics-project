@@ -6,92 +6,78 @@ from solution_checker import isFeasable
 from solution_checker import cost
 from solution_checker import cost_of_vehicle
 from solution_checker import cost_outsource
-import helpers as help
+import helpers
 
 ##############################
 ### ASSIGNMENT 4 OPERATORS ###
 ##############################
 
-def change_order(sol):
+def swap_similar_vehicles(sol):
     solution = sol[:]
-    i1 = random.randrange(len(solution))
-    i2 = i1+1
-    while solution[i1] != 0 and i2 !=0:
-        i1 = random.randrange(len(solution))
-        i2 = i1+1
-    solution[i1], solution[i2] = solution[i2], solution[i1]
+    vehicle_1 = random.randrange(0,data.num_vehicles)
+    vehicle_2 = helpers.find_similar_vehicle(vehicle_1)
+    vehicle_1,vehicle_2 = min(vehicle_1,vehicle_2), max(vehicle_1,vehicle_2)
+
+    start_1,end_1 = helpers.find_vehicle_indices(solution,vehicle_1)
+    start_2,end_2 = helpers.find_vehicle_indices(solution,vehicle_2)
+
+    calls_1 = solution[start_1:end_1] 
+    calls_2 = solution[start_2:end_2]
+    solution[start_2:end_2], solution[start_1:end_1] = calls_1, calls_2
     return solution
 
-def improved_reinsert(sol):
+def smart_one_insert(sol):
     solution = sol[:]
 
-    dummy_index = help.find_dummy_index(solution) # dummy_index = separator_indices[-1] + 1 (beware edge case with len(solution))
-    calls_in_dummy = solution[dummy_index:]
-    if len(calls_in_dummy) == 0:
-        return solution
-    
-    ### TODO: Maybe change the order here to: 
-    # remove expensive call; pick vehicle to place call in; pick best position in vehicle;
+    dummy_index = helpers.find_dummy_index(solution)
+    dummy_calls = list(set(solution[dummy_index:]))
+    dummy_amount = len(dummy_calls)
+    p_dummy_removal = math.log(dummy_amount+1)/math.log(data.num_calls) # keeps high probability for long
 
-    call = find_expensive_call(solution)
+    if random.random() <= p_dummy_removal:
+        call = random.choice(dummy_calls)
+    else:
+        start,end,vehicle_id_remove = helpers.pick_good_vehicle_removal(solution) # removal_vehicle
+        call = helpers.pick_expensive_calls_in_vehicle(solution,vehicle_id_remove,start,end)[0]
 
-
-    # find vehicle to put in
-    vehicle_id = help.pick_good_vehicle_by_call(call)
-    vehicle_start_index,vehicle_end_index = help.find_vehicle_indices(solution,vehicle_id)
-    # pick call available for vehicle
-    # valid_calls_for_vehicle = data.valid_calls[vehicle_id][1:]
+    vehicle_id = helpers.pick_good_vehicle_by_call(call) # insertion_vehicle
+    vehicle_start_index,vehicle_end_index = helpers.find_vehicle_indices(solution,vehicle_id)
     vehicle_calls = solution[vehicle_start_index:vehicle_end_index]
-    # good_choices = list(set(valid_calls_for_vehicle).symmetric_difference(set(vehicle_calls)))
-    # call = random.choice(good_choices)
 
-    if vehicle_start_index==vehicle_end_index:
-        solution = help.reinsert_at_index(solution,call,vehicle_end_index)
+    if vehicle_start_index==vehicle_end_index or not vehicle_calls:
+        # print(call,solution)
+        solution = helpers.reinsert_at_index(solution,call,vehicle_end_index)
         # print("end")
         return solution
-
-
-
-    ###### Finding index to place in #######
-    # Excact option:
-    # i1 = data.pickup_sorted_by_time.index(call)
-    # i2 = data.pickup_sorted_by_time.index(vehicle_calls[0])
-    # i = 0
-    # for c in vehicle_calls:
-    #     i2 = data.pickup_sorted_by_time.index(c)
-    #     if i2 < i1:
-    #         i+= 1
-    #     else:
-    #         break
-
-    # Weighted option:
-    i1 = data.pickup_sorted_by_time.index(call)
-    weights = []
-    for c in vehicle_calls:
-        i2 = data.pickup_sorted_by_time.index(c)
-        diff = abs(i2-i1)
-        if diff == 0:
-            diff = 2
-        weights.append(1/diff)
-
-    if not vehicle_calls:
-        solution = help.reinsert_at_index(solution,call,vehicle_end_index)
-        return solution
-    indices = np.arange(len(vehicle_calls))
-    i = random.choices(indices,weights)[0]
-    # print(indices,weights, i)
-
-    ############################################
-
-    # remove call     
-    c_index = solution.index(call)
     
+    call_pickuptime = data.call_info[call-1][6]
+    pickuptime_diffs = []
 
+    visited = []
+    w = 1
+    for c in vehicle_calls:
+        w = 1
+        cur_pickuptime = data.call_info[c-1][6]
+        if c in visited:
+            w = 2
+        pickuptime_diffs.append((cur_pickuptime-call_pickuptime)*w)
+        visited.append(c)
 
-
+    if pickuptime_diffs[-1] < 0:
+        pickuptime_diffs.append(pickuptime_diffs[-1]/4)
+    pickuptime_diffs = np.array(pickuptime_diffs)
+    weights = abs(pickuptime_diffs)
+    weights[np.where(weights<0.1)] = 0.1
+    with np.errstate(divide='ignore'):
+        weights = (1/weights)**2
+    weights[np.where(weights>100)] = 1
+    
+    indices = np.arange(len(weights))
+    i = random.choices(indices,weights)[0] # used for insertion later
+    c_index = solution.index(call)
     solution.remove(call)
     solution.remove(call)
-    # reinsert pickup call
+
     if c_index < vehicle_start_index:
         vehicle_start_index -= 2
         vehicle_end_index -= 2
@@ -101,50 +87,26 @@ def improved_reinsert(sol):
         solution.insert(vehicle_start_index,call)
         solution.insert(vehicle_start_index,call)
         return solution
-    solution.insert(vehicle_start_index+i,call)
+    pickup_insertion_index = vehicle_start_index+i
+    # reinsert pickup:
+    solution.insert(pickup_insertion_index,call)
 
+    # reinsert delivery (base case):
     temp = solution[:]
-    temp.insert(vehicle_start_index+i+1,call)
+    temp.insert(pickup_insertion_index+1,call)
     best_sol = temp
-    # reinsert delivery call
 
-    for index in range(vehicle_start_index+i+2,vehicle_end_index+1):
+    for index in range(pickup_insertion_index+2,vehicle_end_index+1):
+        # reinsert delivery:
         temp = solution[:]
         temp.insert(index,call)
-        
         if isFeasable(temp):
-
             if cost_of_vehicle(temp,vehicle_id) < cost_of_vehicle(best_sol,vehicle_id):
                 best_sol = temp 
-                # print(best_sol, cost(best_sol),"By reinsert+")
                 continue
         else:
             break
     return best_sol
-
-
-def remove_expensive(sol): 
-    solution = sol [:]
-    dummy_index = help.find_dummy_index(solution) # dummy_index = separator_indices[-1] + 1 (beware edge case with len(solution))
-    calls_in_dummy = solution[dummy_index:]
-    calls_in_vehicles = list(set(solution).symmetric_difference(set(calls_in_dummy)))
-    if len(calls_in_dummy)/data.num_calls < 0.2:
-        expensive_call_1 = find_expensive_call(solution)
-        expensive_call_2 = find_expensive_call(solution)
-        while expensive_call_1 == expensive_call_2:
-            expensive_call_2 = find_expensive_call(solution)
-        
-        help.put_in_dummy(solution,expensive_call_1)
-        help.put_in_dummy(solution,expensive_call_2)
-        return solution
-
-    if len(calls_in_dummy)/2 < data.num_calls/2:
-        expensive_call = find_expensive_call(solution)
-    else:
-        expensive_call = random.choice(calls_in_dummy)
-    help.put_in_dummy(solution,expensive_call)
-
-    return solution, expensive_call
 
 def swap2_similar(sol):
     solution = sol[:]
@@ -154,15 +116,14 @@ def swap2_similar(sol):
     similarites = []
     for cur_call in range(1,data.num_calls+1): # improve
         if call1 != cur_call:
-            cur_similarity = help.get_similarity(call1,cur_call)
+            cur_similarity = helpers.get_similarity(call1,cur_call)
             similarites.append([cur_call, cur_similarity])
 
     similarites = np.array(similarites)
     population = similarites[:,0].astype(int)
     weights = similarites[:,1]
-    ### change this to alter probability of selection
-    weights = (weights/max(weights))
-
+    weights = 1/weights
+    weights = (weights/max(weights)) # **x to intensify 
     call2 = random.choices(population,weights)[0]
     solution = np.array(solution)
     np.place(solution,solution==call1,-1)
@@ -170,185 +131,18 @@ def swap2_similar(sol):
     np.place(solution,solution==-1,call2)
     return list(solution)
 
-
-def reinsert_with_similar(sol):
-    solution = sol[:]
-    dummy_index = help.find_dummy_index(solution) # dummy_index = separator_indices[-1] + 1 (beware edge case with len(solution))
-    calls_in_dummy = solution[dummy_index:]
-    calls_in_vehicles = list(set(solution).symmetric_difference(set(calls_in_dummy)))
-    if len(calls_in_vehicles) <= 1:
-        return sol # no calls to remove
-    good_choices = calls_in_vehicles[1:]
-
-    if not good_choices:
-        print("no good choises for similar_insert")
-        return solution
-
-    if len(calls_in_dummy)/2 < data.num_calls/2:
-        expensive_call = find_expensive_call(solution)
-    else:
-        expensive_call = random.choice(calls_in_dummy)
-    vehicle_start_index,vehicle_end_index,vehicle_id = help.pick_good_vehicle(solution)
-    # random.choice
-    # pick call available for vehicle
-    # valid_calls_for_vehicle = data.valid_calls[vehicle_id][1:]
-    # vehicle_calls = solution[vehicle_start_index:vehicle_end_index]
-    
-    # good_choices = list(set(solution).symmetric_difference(set(calls_in_dummy)))
-
-    similarites = []
-    for cur_call in good_choices: # improve
-        if expensive_call != cur_call:
-            cur_similarity = help.get_similarity(expensive_call,cur_call)
-            similarites.append([cur_call, cur_similarity])
-
-    similarites = np.array(similarites)
-    population = similarites[:,0].astype(int)
-    weights = similarites[:,1]
-    ### change this to alter probability of selection
-    weights = (weights/max(weights))
-
-    similar_call = random.choices(population,weights)[0]
-    # solution.remove(best_call)
-    # solution.remove(best_call)
-    
-    solution.remove(expensive_call)
-    solution.remove(expensive_call)
-    # call_to_remove = find_expensive_call_in_vehicle(solution,vehicle_id)
-    # solution = help.put_in_dummy(solution,call_to_remove)
-    similar_call_indices = [i for i, x in enumerate(solution) if x == similar_call]
-    # print(similar_call_indices)
-    solution.insert(min(similar_call_indices[1]+1,len(solution)-1),expensive_call)
-    solution.insert(similar_call_indices[0],expensive_call)
-    # print(vehicle_start_index,vehicle_end_index,vehicle_id, expensive_call, most_similar_call)
-    return solution
-
-# returns most expensive call in solution
-def find_expensive_call1(solution):
-    dummy_index = help.find_dummy_index(solution)
-    calls_in_dummy = solution[dummy_index:]
-    calls_in_vehicles = list(set(solution).symmetric_difference(set(calls_in_dummy)))
-    calls_in_vehicles = calls_in_vehicles[1:] # removes 0, is sorted by set
-
-    call_costs = []
-    for call in calls_in_vehicles:
-        vehicle_id = help.find_vehicle_of_call(solution,call)
-        total_cost = cost_of_vehicle(solution,vehicle_id)
-        temp = solution[:]
-        temp.remove(call)
-        temp.remove(call)
-        cost_without_call = cost_of_vehicle(temp,vehicle_id)
-        diff = total_cost-cost_without_call
-        call_costs.append([call,diff])
-    if not call_costs:
-        print("no expensive calls")
-        return random.choice(calls_in_dummy)
-    call_costs = np.array(call_costs)
-    costs_as_float = call_costs[:,1].astype(float)
-
-    ### change this to alter probability of selection
-    weights = (costs_as_float/max(costs_as_float))
-    if sum(weights) < 0.05:
-        print("low weights")
-        return random.choice(calls_in_dummy)
-    call = random.choices(call_costs[:,0],weights)[0]
-    return call
-
-def find_expensive_call(solution):
-    dummy_index = help.find_dummy_index(solution)
-    calls_in_dummy = solution[dummy_index:]
-    calls_in_vehicles = list(set(solution).symmetric_difference(set(calls_in_dummy)))
-    calls_in_vehicles = calls_in_vehicles[1:] # removes 0, is sorted by set
-
-    call_costs = []
-    for call in calls_in_vehicles:
-        vehicle_id = help.find_vehicle_of_call(solution,call)
-        total_cost = cost_of_vehicle(solution,vehicle_id)
-        temp = solution[:]
-        temp.remove(call)
-        temp.remove(call)
-        cost_without_call = cost_of_vehicle(temp,vehicle_id)
-        diff = total_cost-cost_without_call
-        call_costs.append([call,diff])
-
-    dummy_cost = cost_outsource(solution)
-    for call in calls_in_dummy:
-        temp = solution[:]
-        temp.remove(call)
-        temp.remove(call)
-        cost_without_call = cost_outsource(temp)
-        diff = dummy_cost-cost_without_call
-        call_costs.append([call,diff])
-    call_costs = np.array(call_costs)
-    costs_as_float = call_costs[:,1].astype(float)
-
-    ### change this to alter probability of selection
-    weights = (costs_as_float/max(costs_as_float))
-    if sum(weights) < 0.05:
-        print("low weights")
-        return random.choice(calls_in_dummy)
-    call = random.choices(call_costs[:,0],weights)[0]
-    return call
-
-# returns most expensive call found in given vehicle
-def find_expensive_call_in_vehicle(solution, vehicle_id):
-    separator_indices = [i for i, x in enumerate(solution) if x == 0]
-    if vehicle_id == 0:
-        vehicle_start_index = 0
-    else:
-        vehicle_start_index = separator_indices[vehicle_id-1]+1
-    vehicle_end_index = separator_indices[vehicle_id]
-    if vehicle_start_index == vehicle_end_index:
-        return 0
-    calls_in_vehicle = [x for x in solution[vehicle_start_index:vehicle_end_index]]
-    calls_in_vehicle = list(set(calls_in_vehicle))
-    largest_diff = 0
-    most_expensive_call = None
-    total_cost = cost_of_vehicle(solution,vehicle_id)
-
-    for call in calls_in_vehicle:
-        temp = solution[:]
-        temp.remove(call)
-        temp.remove(call)
-        cost_without_call = cost_of_vehicle(temp,vehicle_id)
-        diff = total_cost-cost_without_call
-        if diff > largest_diff:
-            largest_diff = diff
-            most_expensive_call = call
-            # costly_calls.append(most_expensive_call)
-    return most_expensive_call#, largest_diff
-
-def put_last_call_in_dummy(solution,vehicle):
-    separator_indecies = [i for i, x in enumerate(solution) if x == 0]
-    index = separator_indecies[vehicle]-1
-    call = 0
-    if index >= 0:
-        call = solution[index]
-    if call != 0:
-        solution = help.put_in_dummy(solution,call)
-    return solution
-
-
-#######################
-### BASIC OPERATORS ###
-#######################
+##########################
+### PREVIOUS OPERATORS ###
+##########################
 
 def reinsert_1(sol):
     solution = sol[:]
-
-
-    # find call
-    # find valid vehicles for given call
-    # find range of indexes that can be chosen 
-
-    # maybe create function for this
-    
-    dummy_index = help.find_dummy_index(solution)
+    dummy_index = helpers.find_dummy_index(solution)
 
     c1 = random.randint(1,data.num_calls)
     solution = list(filter(lambda x: x != c1, solution))
 
-    new_dummy_index = help.find_dummy_index(solution)
+    new_dummy_index = helpers.find_dummy_index(solution)
 
     separator_indices = [i for i, x in enumerate(solution) if x == 0]
     separator_indices
@@ -476,3 +270,124 @@ def swap2(sol):
     np.place(solution,solution==-1,c2)
 
     return list(solution)
+
+###################################
+### FAILED/UNFINISHED OPERATORS ###
+###################################
+
+def quick_insert(sol):
+    solution = sol[:]
+    dummy_index = helpers.find_dummy_index(solution)
+    dummy_calls = list(set(solution[dummy_index:]))
+    _,vehicle_end_index,vehicle_id = helpers.pick_good_vehicle_insertion(solution)
+    valid_calls = data.valid_calls[vehicle_id][1:]
+    good_calls = list(set(dummy_calls) & set(valid_calls))
+    if good_calls:
+        call = random.choice(good_calls)
+    else:
+        return solution
+    solution = helpers.reinsert_at_index(solution,call,vehicle_end_index)
+    return solution
+
+def swap3_similar(sol):
+    solution = sol[:]
+    # find similar call
+    call1 = random.randint(1,data.num_calls)
+    # best_similarity = 1000000
+    similarites = []
+    for cur_call in range(1,data.num_calls+1): # improve
+        if call1 != cur_call:
+            cur_similarity = helpers.get_similarity(call1,cur_call)
+            similarites.append([cur_call, cur_similarity])
+    
+
+    similarites = np.array(similarites)
+    population = similarites[:,0].astype(int)
+    weights = similarites[:,1]
+    ### change this to alter probability of selection
+    weights = np.array(weights)
+    weights = weights/sum(weights)
+    calls = np.random.choice(population,2,replace=False,p=weights)
+    call2 = calls[0]
+    call3 = calls[1]
+    # print(call1,call2,call3)
+    solution = np.array(solution)
+    np.place(solution,solution==call1,-3)
+    np.place(solution,solution==call2,-1)
+    np.place(solution,solution==call3,-2)
+    np.place(solution,solution==-1,call1)
+    np.place(solution,solution==-2,call2)
+    np.place(solution,solution==-3,call3)
+    return list(solution)
+
+def smart_k_insert(sol):
+    k = 2 # currently just using k=2
+
+    solution = sol[:]
+    for i in range(k):
+        call = helpers.find_k_expensive_calls(solution,k=1)[0]
+        vehicle_id = helpers.pick_good_vehicle_by_call(call)
+        vehicle_start_index,vehicle_end_index = helpers.find_vehicle_indices(solution,vehicle_id)
+        vehicle_calls = solution[vehicle_start_index:vehicle_end_index]
+        if vehicle_start_index==vehicle_end_index:
+            solution = helpers.reinsert_at_index(solution,call,vehicle_end_index)
+            continue
+        if not vehicle_calls:
+            solution = helpers.reinsert_at_index(solution,call,vehicle_end_index)
+            continue
+
+        # Insertion weights:
+        cp = data.call_info[call-1][6]
+        cps = []
+
+        visited = []
+        w = 1
+        for c in vehicle_calls:
+            w = 1
+            cur_cp = data.call_info[c-1][6]
+            if c in visited:
+                w = 2
+            cps.append((cur_cp-cp)*w)
+            visited.append(c)
+
+        if cps[-1] < 0:
+            cps.append(cps[-1]/4)
+        cps = np.array(cps)
+        cps = abs(cps)
+        cps[np.where(cps<0.001)] = 0.001
+        weights =(1/cps)**2
+        weights[np.where(weights>100)] = 1
+
+        indices = np.arange(len(cps))
+        i = random.choices(indices,weights)[0]
+
+        c_index = solution.index(call)
+        solution.remove(call)
+        solution.remove(call)
+        # reinsert pickup call
+        if c_index < vehicle_start_index:
+            vehicle_start_index -= 2
+            vehicle_end_index -= 2
+        if vehicle_start_index <= c_index < vehicle_end_index:
+            vehicle_end_index -= 2
+        if vehicle_start_index == vehicle_end_index:
+            solution.insert(vehicle_start_index,call)
+            solution.insert(vehicle_start_index,call)
+            continue
+        solution.insert(vehicle_start_index+i,call)
+
+        temp = solution[:]
+        temp.insert(vehicle_start_index+i+1,call)
+        best_sol = temp
+        for index in range(vehicle_start_index+i+2,vehicle_end_index+1):
+            temp = solution[:]
+            temp.insert(index,call)
+            if isFeasable(temp):
+                if cost_of_vehicle(temp,vehicle_id) < cost_of_vehicle(best_sol,vehicle_id):
+                    best_sol = temp 
+                    # print(best_sol, cost(best_sol),"By reinsert+")
+                    continue
+            else:
+                break
+        solution = best_sol
+    return solution

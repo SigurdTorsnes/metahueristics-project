@@ -1,5 +1,5 @@
 import data
-import helpers as help
+import helpers as helpers
 
 def cost(solution):
     cost = 0
@@ -110,7 +110,7 @@ def cost_of_vehicle(solution,vehicle_id):
     picked_up = []
     node = data.vehicle_info[vehicle_id][1]
     if start_index == end_index:
-        return cost # 0
+        return 0
     for i in range(start_index,end_index):
         call = solution[i]
         if call not in picked_up:
@@ -127,10 +127,11 @@ def cost_of_vehicle(solution,vehicle_id):
         travel_cost = data.travel_times_and_cost[index][4]
         cost += travel_cost + transfer_cost
         previous_node = node
+    
     return cost
 
 def cost_outsource(solution):
-    dummy_index = help.find_dummy_index(solution)
+    dummy_index = helpers.find_dummy_index(solution)
     dummy_calls = set(solution[dummy_index:])
     cost = 0
     for call in list(dummy_calls):

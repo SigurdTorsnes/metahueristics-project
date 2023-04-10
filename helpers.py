@@ -1,5 +1,8 @@
 import random
 import data
+import math
+import numpy as np
+import solution_checker as check
 
 def find_dummy_index(solution):
     dummy_call = -1
@@ -23,11 +26,13 @@ def find_vehicle_of_call(solution,call):
 
 def find_vehicle_indices(solution,vehicle_id):
     separator_indices = [i for i, x in enumerate(solution) if x == 0]
-    separator_indices.insert(0,0)
-    start = separator_indices[vehicle_id-1]+1
+    separator_indices.append(0)
+    if vehicle_id == 0:
+        start = 0
+    else:
+        start = separator_indices[vehicle_id-1]+1
     end = separator_indices[vehicle_id]
     return start,end
-
 
 def pick_good_vehicle_by_call(call):
     population = []
@@ -37,21 +42,53 @@ def pick_good_vehicle_by_call(call):
     vehicle = random.choice(population)
     return vehicle
 
-def pick_good_vehicle(solution):
+
+### finds vehicle based on amount of calls
+def pick_good_vehicle_insertion(solution):
     separator_indices = [i for i, x in enumerate(solution) if x == 0]
     vehicle_sizes = [x-separator_indices[i-1]-1 for i,x in enumerate(separator_indices)]
     vehicle_sizes[0] = separator_indices[0]
-    tot_len = sum(vehicle_sizes)
+    vehicle_weights = [1/math.exp(x+1) for x in vehicle_sizes]
 
-
-    vehicle_weights = [tot_len+1/(x+1) for x in vehicle_sizes]
     vehicle_end_index = random.choices(separator_indices,vehicle_weights, k=1)[0]
     vehicle_id = separator_indices.index(vehicle_end_index)
     if vehicle_id == 0:
         vehicle_start_index = 0
     else:
         vehicle_start_index = separator_indices[vehicle_id-1]+1
+    return vehicle_start_index,vehicle_end_index,vehicle_id
 
+def pick_expensive_calls_in_vehicle(solution, vehicle_id,start,end):
+    call_costs = []
+    calls_in_vehicle = calls_between(solution,start,end)
+    total_cost = check.cost_of_vehicle(solution,vehicle_id)
+    if len(calls_in_vehicle) == 1:
+        return calls_in_vehicle
+    for call in calls_in_vehicle: 
+        temp = solution[:]
+        temp.remove(call)
+        temp.remove(call)
+        cost_without_call = check.cost_of_vehicle(temp,vehicle_id)
+        diff = total_cost-cost_without_call
+        call_costs.append([call,diff])
+    call_costs = np.array(call_costs)
+    costs_as_float = call_costs[:,1].astype(float)
+    weights = costs_as_float/costs_as_float.sum()
+    picked = np.random.choice(call_costs[:,0], 1, replace=False, p=weights)
+    return picked
+
+def pick_good_vehicle_removal(solution):
+    separator_indices = [i for i, x in enumerate(solution) if x == 0]
+    vehicle_sizes = [x-separator_indices[i-1]-1 for i,x in enumerate(separator_indices)]
+    vehicle_sizes[0] = separator_indices[0]
+    tot_len = sum(vehicle_sizes)
+    vehicle_weights = [math.pow(x,1.3) for x in vehicle_sizes]
+    vehicle_end_index = random.choices(separator_indices,vehicle_weights, k=1)[0]
+    vehicle_id = separator_indices.index(vehicle_end_index)
+    if vehicle_id == 0:
+        vehicle_start_index = 0
+    else:
+        vehicle_start_index = separator_indices[vehicle_id-1]+1
     return vehicle_start_index,vehicle_end_index,vehicle_id
 
 def calls_between(solution,start_index,end_index):
@@ -114,3 +151,52 @@ def get_similarity(call1,call2):
     c1, c2 = min(call1,call2), max(call1,call2)
     index =(data.num_calls*(c1-1)+c2-c1-1)
     return data.call_relativity[index][-1]
+
+def find_similar_vehicle(v1):
+    row_indexes = []
+    for v2 in range(data.num_vehicles):
+        if v1 == v2:
+            continue
+        index = v1*data.num_vehicles+v2
+        row_indexes.append(index)
+    selection = data.vehicle_similarities.loc[row_indexes,:]
+    weights = selection['total'].values
+    weights = weights+0.001 # this is to avoid 100% chance of picking vehicles that may have exactly equal features
+    weights = 1/pow(weights,1)
+    weights = weights/sum(weights)
+    vehicles = selection['v2'].values
+    vehicle = np.random.choice(vehicles,size=None,replace=False,p=weights)
+    return vehicle
+
+def find_k_expensive_calls(solution,k=1):
+    dummy_index = find_dummy_index(solution)
+    calls_in_dummy = solution[dummy_index:]
+    calls_in_vehicles = list(set(solution).symmetric_difference(set(calls_in_dummy)))
+    calls_in_vehicles = calls_in_vehicles[1:] # removes 0, is sorted by set
+    calls_in_dummy = list(set(calls_in_dummy))
+
+    call_costs = []
+    for call in calls_in_vehicles:
+        vehicle_id = find_vehicle_of_call(solution,call)
+        total_cost = check.cost_of_vehicle(solution,vehicle_id)
+        temp = solution[:]
+        temp.remove(call)
+        temp.remove(call)
+        cost_without_call = check.cost_of_vehicle(temp,vehicle_id)
+        diff = total_cost-cost_without_call
+        call_costs.append([call,diff])
+
+    dummy_cost = check.cost_outsource(solution)
+    for call in calls_in_dummy:
+        temp = solution[:]
+        temp.remove(call)
+        temp.remove(call)
+        cost_without_call = check.cost_outsource(temp)
+        diff = dummy_cost-cost_without_call
+        call_costs.append([call,diff])
+    call_costs = np.array(call_costs)
+    costs_as_float = call_costs[:,1].astype(float)
+
+    weights = costs_as_float/costs_as_float.sum()
+    picked = np.random.choice(call_costs[:,0],k,replace=False,p= weights)
+    return picked

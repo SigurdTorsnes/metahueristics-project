@@ -1,4 +1,3 @@
-
 def init():
     global num_calls
     global num_nodes
@@ -14,6 +13,7 @@ def init():
     global latest_pickup_time
     global latest_delivery_time
     global call_relativity
+    global vehicle_similarities
 
     num_calls = 0
     num_nodes = 0
@@ -29,3 +29,4 @@ def init():
     latest_pickup_time = 0
     latest_delivery_time = 0
     call_relativity = []
+    vehicle_similarities = []

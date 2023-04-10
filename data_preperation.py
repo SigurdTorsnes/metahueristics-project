@@ -54,6 +54,7 @@ def generate_data():
     data.latest_pickup_time = data.call_info[:,6].max()
     data.latest_delivery_time = data.call_info[:,8].max()
     generate_call_relativity()
+    generate_vehicle_similarity()
 
 def generate_call_relativity():
     call_relativity = []
@@ -63,11 +64,11 @@ def generate_call_relativity():
             time_pickup_r = time_pickup_relativity(i,j)
             time_delivery_r = time_delivery_relativity(i,j)
             size_r = size_relativity(i,j)
-            compatibility_r = vehicle_compatibility(i,j)
-            call_pair = [i,j,cost_r,time_pickup_r,time_delivery_r,compatibility_r,size_r]
+            vehicle_compatibility_r = vehicle_compatibility(i,j)
+            call_pair = [i,j,cost_r,time_pickup_r,time_delivery_r,vehicle_compatibility_r,size_r]
             call_relativity.append(call_pair)
     call_r_df = pd.DataFrame(call_relativity)
-    columns = ['call1','call2','cost','time_pickup','time_delivery','compatibility','call_size']
+    columns = ['call1','call2','cost','time_pickup','time_delivery','vehicle_compatibility','call_size']
     call_r_df.columns = columns
     call_r_df = call_r_df.convert_dtypes()
     call_r_df = call_r_df.query("call1 != call2")
@@ -75,21 +76,33 @@ def generate_call_relativity():
     for column in columns[2:]:
         call_r_df[column] = call_r_df[column] /call_r_df[column].abs().max()
     # call_r_df.iloc[:,2:] = (call_r_df.iloc[:,2:]-call_r_df.iloc[:,2:].min())/(call_r_df.iloc[:,2:].max()-call_r_df.iloc[:,2:].min())
-    call_r_df['total'] = call_r_df.cost + call_r_df.time_pickup + call_r_df.time_delivery + call_r_df.compatibility + call_r_df.call_size
-    call_r_df = call_r_df.round(4)
+    call_r_df['total'] = call_r_df.cost + call_r_df.time_pickup + call_r_df.time_delivery + call_r_df.vehicle_compatibility + call_r_df.call_size
+    # call_r_df = call_r_df.round(4)
     call_r_df = call_r_df.sort_values(by=['call1','call2'])
     data.call_relativity = call_r_df.to_numpy()
+
+def can_be_infront(call1,call2):
+    delivery_max_1 =data.call_info[call1-1,8]
+    previous_node = data.call_info[call2-1][2]
+    pickup_max_2 =data.call_info[call2-1,6]
+    node = data.call_info[call2-1][1]
+    index = data.num_vehicles*((previous_node-1)*data.num_nodes+node)-data.num_vehicles-1 #uses just first vehicle
+    travel_time = data.travel_times_and_cost[index][3]
+    if delivery_max_1+travel_time<pickup_max_2: # + time between nodes of the calls
+        return False
+    return True
 
 def time_pickup_relativity(call1,call2):
     pickup_max_1 =data.call_info[call1-1,6]
     pickup_max_2 =data.call_info[call2-1,6]
-    diff = abs(pickup_max_1-pickup_max_2)
+    diff = (pickup_max_1-pickup_max_2)**2
+
     return diff
 
 def time_delivery_relativity(call1,call2):
     delivery_max_1 =data.call_info[call1-1,8]
     delivery_max_2 =data.call_info[call2-1,8]
-    diff = abs(delivery_max_1-delivery_max_2)
+    diff = (delivery_max_1-delivery_max_2)**2
     return diff
 
 def size_relativity(call1,call2):
@@ -110,3 +123,30 @@ def vehicle_compatibility(call1,call2):
     total = max(len(call1_compatible_vehicles),len(call2_compatible_vehicles))
     compatibility_r = len(set(call2_compatible_vehicles).symmetric_difference(set(call1_compatible_vehicles)))/total
     return compatibility_r
+
+def normalize(column):
+    return column/max(column)
+
+def generate_vehicle_similarity():
+    for v1 in range(0,data.num_vehicles):
+        for v2 in range(0,data.num_vehicles):
+            starting_node_distance = helpers.get_travel_cost(data.vehicle_info[v1][1],data.vehicle_info[v2][1],0)
+            starting_node_distance = starting_node_distance # not taking abs value results in negative numbers
+            starting_time_diff = (data.vehicle_info[v1][2]-data.vehicle_info[v2][2])
+            capacity_diff = (data.vehicle_info[v1][3]-data.vehicle_info[v2][3])
+            info = np.array([v1,v2,starting_node_distance,starting_time_diff,capacity_diff])
+            # info = info/max(info)
+            index = v1*data.num_vehicles+v2
+            row = data.vehicle_info
+            # vehicle_similarity.update({f'{index}':f"{info}"})
+            data.vehicle_similarities.append(info)
+    columns = ['v1','v2','start_node_dist','start_time_diff','capacity_diff']
+    data.vehicle_similarities = pd.DataFrame(data.vehicle_similarities,index=np.arange(data.num_vehicles**2),columns=columns)
+    data.vehicle_similarities.iloc[:,2:] = pd.DataFrame.apply(data.vehicle_similarities.iloc[:,2:],normalize,axis=0)
+    data.vehicle_similarities.iloc[:,2:] = data.vehicle_similarities.iloc[:,2:]**2#(math.log(data.num_calls)/2)
+    data.vehicle_similarities = data.vehicle_similarities.query(" v1 != v2")
+    data.vehicle_similarities['total'] = data.vehicle_similarities.iloc[:,2:].sum(axis=1)
+    data.vehicle_similarities = data.vehicle_similarities.sort_values(by=['total','v1'])
+
+    data.vehicle_similarities = data.vehicle_similarities.fillna(0)
+    data.vehicle_similarities = data.vehicle_similarities

@@ -2,7 +2,7 @@ import pandas as pd
 pd.options.mode.chained_assignment = None  # default='warn'
 import numpy as np
 from statistics import mean
-import data_formating
+import data_preperation
 import data
 from generators import gen_dummy_sol
 import search_algorithms as algs
@@ -12,7 +12,7 @@ from solution_checker import isFeasable
 from solution_checker import cost_outsource
 from solution_checker import cost_of_vehicle
 import time
-import helpers as help
+import sys
 
 case1 = 'Call_7_Vehicle_3'
 case2 = 'Call_18_Vehicle_5'
@@ -28,9 +28,7 @@ def test_algorithm():
     best_cost = cost(best_sol)
     for i in range(1):
         sol = gen_dummy_sol()
-        sol = algs.simulated_annealing_multiple_ops(sol,[ops.reinsert_1,ops.swap2_similar,ops.improved_reinsert])
-        # sol = algs.local_search(sol,ops.improved_reinsert)
-        # sol = algs.local_search(sol, ops.reinsert_1)
+        sol = algs.simulated_annealing_multiple_ops(sol,[ops.reinsert_1,ops.swap2_similar,ops.smart_one_insert])
         c = cost(sol)
         if c < best_cost:
             best_sol = sol
@@ -41,14 +39,17 @@ def test_algorithm():
     return best_sol, best_cost, costs, average_cost
 
 def test_operator(operator):
-    # sol = [4, 4, 0, 2, 2, 0, 5, 5, 3, 3, 0, 1, 1, 6, 6, 7, 7]
+    temp = sol
+    
+    print(temp)
     for i in range(15):
-        sol = gen_dummy_sol()
-        sol = operator(sol)
-        print(sol, cost(sol), isFeasable(sol))
+        temp = operator(sol)
+        if isFeasable(temp):
+            sol = temp
+        print(temp, cost(temp), isFeasable(temp))
     return sol
 
-def add_instance(search_algorithm,name):
+def add_instance(search_algorithm,name,operators,weights):
     start = time.time()
     start_sol = gen_dummy_sol()
     total_cost = 0
@@ -56,50 +57,41 @@ def add_instance(search_algorithm,name):
     solutions = []
     amount = 10
     best_sol = start_sol
+    # weights = [0.33,0.33S,0.33]
     
     for i in range(amount):
-        cur_sol = search_algorithm(start_sol,ops.swap2)
+        cur_sol = search_algorithm(start_sol,operators,weights)
         if cost(cur_sol) < cost(best_sol):
             best_sol = cur_sol
         solutions.append(cur_sol)
         total_cost += cost(cur_sol)
     end = time.time()
-    avg_time = (end - start)/10
+    avg_time = (end - start)/amount
 
     avg = total_cost/amount
     b_c = cost(best_sol)
 
     improvement = (start_cost-b_c)/start_cost
     improvement *= 100
-    print(best_sol, cost(best_sol),start_cost)
-    # print(start_cost,cost(best_sol))
+    print('\n',best_sol, cost(best_sol),start_cost)
     instance = np.array([[name,round(avg),cost(best_sol),round(improvement,1),round(avg_time,1)]])
     return instance
 
 cur_case = case1
+operators = [ops.smart_one_insert,ops.swap2_similar,ops.swap_similar_vehicles]
+weights = np.array([1,1,1])
+weights = weights/sum(weights)
+
 data.init() # initialize global data variables
-data_formating.read_data(cur_case) # fill global data variables with data
-data_formating.generate_data()
+data_preperation.read_data(cur_case) # fill global data variables with data
+data_preperation.generate_data()
+sys.stdout = open('outputs/Output_'+cur_case+'.txt','wt')
 
-######
-# instance = add_instance(algs.simulated_annealing,"SA")
-# header = [['',cur_case,cur_case,cur_case],
-#           ['Average objective','Best objective', 'Improvement (%)','Running time (seconds)']]
-# df = pd.DataFrame(instance,columns=['Algorithm','Average objective','Best objective', 'Improvement (%)','Running time'])
-# df.set_index('Algorithm',inplace=True)
-# df.columns = header
-# print(df)
-######
+instance = add_instance(algs.simulated_annealing_multiple_ops,"SA",operators,weights)
+header = [['',cur_case,cur_case,cur_case],
+          ['Average objective','Best objective', 'Improvement (%)','Running time (seconds)']]
+df = pd.DataFrame(instance,columns=['Algorithm','Average objective','Best objective', 'Improvement (%)','Running time'])
+df.set_index('Algorithm',inplace=True)
+df.columns = header
 
-
-# sol =  [4, 4, 2, 2, 0, 7, 7, 0, 1, 3, 1, 3, 0, 6, 6, 5, 5]
-
-# v = help.pick_good_vehicle_by_call(sol,2)
-# s,e = help.find_vehicle_indices(sol,v)
-
-# print(v,s,e,sol)
-# test_operator(ops.improved_reinsert)
-sol = gen_dummy_sol()
-sol = algs.simulated_annealing_multiple_ops(sol,[ops.improved_reinsert,ops.improved_reinsert,ops.improved_reinsert])
-
-print((sol,cost(sol)))
+print(df)
