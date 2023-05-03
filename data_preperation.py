@@ -81,17 +81,6 @@ def generate_call_relativity():
     call_r_df = call_r_df.sort_values(by=['call1','call2'])
     data.call_relativity = call_r_df.to_numpy()
 
-def can_be_infront(call1,call2):
-    delivery_max_1 =data.call_info[call1-1,8]
-    previous_node = data.call_info[call2-1][2]
-    pickup_max_2 =data.call_info[call2-1,6]
-    node = data.call_info[call2-1][1]
-    index = data.num_vehicles*((previous_node-1)*data.num_nodes+node)-data.num_vehicles-1 #uses just first vehicle
-    travel_time = data.travel_times_and_cost[index][3]
-    if delivery_max_1+travel_time<pickup_max_2: # + time between nodes of the calls
-        return False
-    return True
-
 def time_pickup_relativity(call1,call2):
     pickup_max_1 =data.call_info[call1-1,6]
     pickup_max_2 =data.call_info[call2-1,6]
