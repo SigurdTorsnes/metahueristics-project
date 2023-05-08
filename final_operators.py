@@ -65,31 +65,39 @@ def remove_vehicle(sol,k):
     solution[start:end] = []
     return solution,calls
 
-def remove_costly_and_similar_vehicles(sol,k):
+def redo_similar_vehicles(sol,k):
     # ratio = data.num_vehicles//data.num_calls
     # k = int(ratio*k)+1
     solution = sol[:]
-    # weights = []
-    # vehicles = np.arange(data.num_vehicles)
-    # for v in vehicles:
-    #     cv = cost_of_vehicle(solution,v)
-    #     weights.append(cv)
-    # weights = np.array(weights)+1
-    # v1 = random.choices(vehicles,weights)[0] # costly
     v1 = random.randrange(data.num_vehicles)
     v2 = helpers.find_similar_vehicle(v1) # similar to v1
     vs = [v1,v2]
+
+    random.shuffle(vs)
     calls = []
     # print("start")
     for v in vs:
-        # print(solution)
-        v = random.randrange(data.num_vehicles)
         start, end = helpers.find_vehicle_indices(solution,v)
         for i in set(solution[start:end]):
             calls.append(i)
         solution[start:end] = []
-    # print(solution,calls)
-    return solution,calls,vs
+    random.shuffle(calls)
+    best_sol = solution[:]
+    to_change = solution[:]
+    
+    for call in calls: # k calls
+        improved = False
+        best_cost_diff = data.call_info[call][3]
+        for v in vs: # v vehicles * k calls
+            temp, temp_cost_diff = helpers.insert_at_optimal_position(to_change,call,v)
+            if temp_cost_diff < best_cost_diff:
+                best_sol = temp
+                best_cost_diff = temp_cost_diff
+                improved = True
+        if not improved:
+            best_sol = helpers.insert_first_feasible(best_sol,call)
+        to_change = best_sol
+    return best_sol
 
 ### insert_operators
 def random_insert(sol,calls):
@@ -98,6 +106,13 @@ def random_insert(sol,calls):
         index = random.choice(np.arange(len(solution)))
         solution.insert(index,call)
         solution.insert(index,call)
+    return solution
+
+def insert_first_feasible(sol,calls):
+    random.shuffle(calls)
+    solution = sol[:]
+    for call in calls:
+        solution = helpers.insert_first_feasible(solution,call)
     return solution
 
 def insert_k_quick(sol,calls):
@@ -110,7 +125,7 @@ def insert_k_quick(sol,calls):
     to_change = sol[:]
     for call in calls:
         improved = False
-        best_diff = data.call_info[call-1][4]
+        best_diff = data.call_info[call][3]
         v = helpers.pick_most_empty_vehicle_insert(to_change,call)
         temp, temp_diff = helpers.insert_at_optimal_position(to_change,call,v)
         if temp_diff < best_diff:
@@ -124,19 +139,16 @@ def insert_k_quick(sol,calls):
     return best_sol
 
 
-def insert_k_best_pos(sol,calls, vs=[]):
+def insert_k_best_pos(sol,calls):
     random.shuffle(calls)
     best_sol = sol[:]
     to_change = sol[:]
     
     for call in calls: # k calls
         improved = False
-        best_cost_diff = data.call_info[call-1][4]
-        if len(vs)!=0:
-            vehicles = vs[:]
-        else:
-            # print("emp")
-            vehicles = helpers.get_valid_vehicles(call)
+        best_cost_diff = data.call_info[call][3]
+        # print("emp")
+        vehicles = helpers.get_valid_vehicles(call)
         # random.shuffle(vehicles)
         # vehicles = [vehicles[0]]
         for v in vehicles: # v vehicles * k calls

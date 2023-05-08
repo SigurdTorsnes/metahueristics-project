@@ -91,41 +91,14 @@ def alt_escape(sol,operators,weights):
                     return best_sol
     return best_sol
 
-        
+def escape_remove_expensive(sol,b):
+    k = data.num_calls//4
+    solution = sol[:]
+    calls = helpers.find_k_expensive_calls(sol,k)
+    for c in calls:
+        solution = helpers.put_in_dummy(solution,c)
+    return solution, False
 
-def escape_algorithm(incumbent,operators,weights):
-    # At local minima is given. We need to escape.
-    # Options:
-    #   reinsert random call in dummy and run operators on the new solution, if no new best_sol,
-    #   remove more and try again
-    best_sol = incumbent[:]
-    print(best_sol)
-
-    for i in range(30):
-        for j in range(10):
-            operator = random.choices(operators,weights)[0]
-            new_sol = operator(incumbent)
-            if isFeasable(new_sol) and cost(new_sol) != cost(incumbent):
-                incumbent = new_sol
-                print("Feasable")
-                print(incumbent,cost(incumbent), cost(best_sol))
-                if cost(incumbent) < cost(best_sol):
-                    print(i,j)
-                    best_sol = incumbent
-                break
-
-        for k in range(50):
-            operator = random.choices(operators,[1,1,1])[0]
-            new_sol = operator(incumbent)
-            cost_incumbent = cost(incumbent)
-            delta = cost(new_sol) - cost_incumbent
-
-            if isFeasable(new_sol) and (cost(incumbent) < cost(best_sol)):
-                print(cost(best_sol))
-                best_sol = incumbent
-                return best_sol
-    
-    return best_sol
 
 def adaptive_search(s0,operators):
     total_runs = 10000
@@ -253,8 +226,8 @@ def simulated_annealing_multiple_ops(s0,operators,weights):
 def escape(sol,best_cost):
     incumbent = sol[:]
     count = 0
-    for i in range(30):
-        temp, calls = fops.remove_k_random(incumbent,int(2+data.num_calls*0.1))
+    for i in range(100):
+        temp, calls = fops.remove_k_random(incumbent,int(min(data.num_calls,2+math.log(data.num_calls))))
         temp = fops.insert_k_quick(temp,calls)
         # print(temp, cost(temp),isFeasable(temp))
         if temp != incumbent and isFeasable(temp):
@@ -262,7 +235,7 @@ def escape(sol,best_cost):
             incumbent = temp
             if cost(temp) < best_cost:
                 return incumbent, True
-            if count == 3:
+            if count == 7:
                 break
     return incumbent, False
 
@@ -271,7 +244,7 @@ def intensify(sol,best_cost):
     # print("--------------------")
     # print(sol, cost(sol))
     for i in range(10):
-        temp, calls, vehicles = fops.remove_costly_and_similar_vehicles(incumbent,k=2)
+        temp, calls, vehicles = fops.redo_similar_vehicles(incumbent,k=2)
         temp = fops.insert_k_best_pos(temp,calls,vehicles)
         if temp != incumbent and isFeasable(temp):
             # print(temp, cost(temp))
@@ -279,15 +252,17 @@ def intensify(sol,best_cost):
                 return incumbent, True
     return incumbent, False
 
-def ALNS(sol,removal_ops,insertion_ops):
-    print("Cost,Iteration")
+def ALNS(sol,r_ops,insertion_ops):
+    print("Cost,Iteration,Inserter,Remover,e,improved_i,best_itr,q")
     solution = sol[:]
+    removal_ops = r_ops[:]
     best_sol = solution
     best_cost = cost(best_sol)
     incumbent = solution
     cost_incumbent = cost(incumbent)
 
     total_runs = 10000
+    removal_ops.insert(0,fops.redo_similar_vehicles)
     r_ops_indexes = np.arange(len(removal_ops))
     i_ops_indexes = np.arange(len(insertion_ops))
     periods = 20
@@ -295,9 +270,14 @@ def ALNS(sol,removal_ops,insertion_ops):
 
     r_weights = np.ones(len(removal_ops))
     i_weights = np.ones(len(insertion_ops))
-    D = 0.2
+    D = 0.2*best_cost
     q_expected = 1
     q_max = int(2+math.log(data.num_calls))
+    q_tick = total_runs//q_max
+    # if iteration%q_tick==0:
+    #     q_current 
+    #     q_s =np.arange(1,q_current)
+    q = 0
     qs = np.arange(1,q_max+1)
     q_weights = np.empty(q_max)
     q_weights.fill(q_expected)
@@ -306,6 +286,7 @@ def ALNS(sol,removal_ops,insertion_ops):
     r = 0.7
     e = 0
     a = 0
+    itr_best = 0
     thresh = 0.005
     itr_of_last_improvement = -1
     itr_since_last_improvement = -1
@@ -318,18 +299,9 @@ def ALNS(sol,removal_ops,insertion_ops):
         r_op_count = np.ones(len(removal_ops))
         r_scores = np.ones(len(removal_ops))
         for j in range(runs_in_period):
-            # if a > 500:
-            #     a = 0
-            #     # print(best_sol, "before intensify")
-            #     incumbent, improved = intensify(best_sol,best_cost)
-            #     cost_incumbent = cost(incumbent)
-            #     # print(incumbent, "after intensify")
-            #     if improved:
-            #         q_expected = 1
-            #         thresh = 0.005
-            #         best_sol = incumbent
-            #         best_cost = cost(best_sol)
-            if e > 400:
+            # if e+e*((total_runs-((i*runs_in_period)+j))/total_runs) > 800:
+            # if e > 200+800*abs(total_runs-3*((i*runs_in_period)+j))/(3*total_runs):
+            if e > 1000:
                 e = 0
                 # print(best_sol, "before escape")
                 incumbent, improved = escape(best_sol,best_cost)
@@ -340,22 +312,29 @@ def ALNS(sol,removal_ops,insertion_ops):
                     thresh = 0.005
                     best_sol = incumbent
                     best_cost = cost(best_sol)
+                    itr_best = (i*runs_in_period)+j
 
             # print(q,q_weights)
-            q = random.choices(qs,q_weights)[0]
-            q_selected.append(q)
+            # q = random.choices(qs,q_weights)[0]
+            # q_selected.append(q)
+            if ((i*runs_in_period)+j)%q_tick == 0:
+                q += 1
             r_op_index = random.choices(r_ops_indexes,r_weights)[0]
             r_operator = removal_ops[r_op_index]
             r_op_count[r_op_index] +=1
             i_op_index = random.choices(i_ops_indexes,i_weights)[0]
-            i_operator = insertion_ops[i_op_index]
-            i_op_count[i_op_index] +=1
-            temp, calls = r_operator(incumbent,q)
-            new_sol = i_operator(temp,calls)
+            if r_op_index != 0:
+                i_operator = insertion_ops[i_op_index]
+                i_op_count[i_op_index] +=1
+                # print(r_operator)
+                temp, calls = r_operator(incumbent,q)
+                new_sol = i_operator(temp,calls)
+            else: # run redo_vehicles operator
+                new_sol = r_operator(incumbent,q)
 
             cost_new_sol = cost(new_sol)
             delta = cost_new_sol-cost_incumbent
-            print(f'{cost_incumbent},{((i*runs_in_period)+j)}')
+            print(f'{cost_incumbent},{((i*runs_in_period)+j)},{i_op_index},{r_op_index},{e},{itr_since_last_improvement},{itr_best},{q}')
 
             if delta < 0 and isFeasable(new_sol):
                 incumbent = new_sol
@@ -367,6 +346,7 @@ def ALNS(sol,removal_ops,insertion_ops):
                 if cost_incumbent < best_cost:
                     e = 0
                     a = 0
+                    itr_best = (i*runs_in_period)+j
                     # print(incumbent,cost_incumbent, r_operator,i_operator, q,q_expected,(i*runs_in_period)+j)
                     q_expected = 1
                     thresh = 0.005
@@ -383,7 +363,7 @@ def ALNS(sol,removal_ops,insertion_ops):
 
             e += 1
             a += 1
-            D = 0.2*((total_runs-((i*runs_in_period)+j))/total_runs)*best_cost
+            D = 0.2*((total_runs-((i*runs_in_period)+j))/total_runs)*best_cost+0.05*best_cost
             itr_since_last_improvement = (i*runs_in_period)+j-itr_of_last_improvement
 
             if itr_since_last_improvement/total_runs > thresh:

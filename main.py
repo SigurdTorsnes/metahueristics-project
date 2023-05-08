@@ -68,7 +68,7 @@ def add_instance(search_algorithm,name,r_ops,i_ops):
     total_cost = 0
     start_cost = cost(start_sol)
     solutions = []
-    amount = 1
+    amount = 10
     best_sol = start_sol
     
     for i in range(amount):
@@ -93,9 +93,7 @@ cur_case = case3
 data.init() # initialize global data variables
 data_preperation.read_data(cur_case) # fill global data variables with data
 data_preperation.generate_data()
-# sys.stdout = open('Assignment5/Output_'+cur_case+'.txt','wt')
-# sys.stdout = open('Assignment5/Output_test.txt','wt')
-sys.stdout = open('VisualizeRuns/'+cur_case+'oesc.txt','wt')
+sys.stdout = open('VisualizeRuns/testing.txt','wt')
 
 
 # operators = [ops.smart_one_insert,ops.swap_similar_vehicles,ops.swap2_similar]#,ops.reinsert_1]
@@ -108,14 +106,6 @@ sys.stdout = open('VisualizeRuns/'+cur_case+'oesc.txt','wt')
 # case 4: 2300 s
 # case 5: :(
 # case 6: :(
-
-# new time:
-# case 1: 12 s
-# case 2: 40 s
-# case 3: 190 s
-# case 4: 840 s
-# case 5: 2500 s
-
 # new time:
 # case 1: 15 s
 # case 2: 56 s
@@ -124,20 +114,36 @@ sys.stdout = open('VisualizeRuns/'+cur_case+'oesc.txt','wt')
 # case 5: 954 s
 # case 6:
 
+# new new time:
+# case 1: 10s
+# case 2: 38 
+# case 3: 138 ss
+# case 4: 280s :)
+# case 5: 481s
 # 63 costly random similar vehicle
 # 47 coslty random similar
 # 48 random similar
-removal_ops = [fops.remove_k_costly,fops.remove_k_random,fops.remove_k_similar]
-# removal_ops = [fops.remove_k_costly]
-insertion_ops = [fops.insert_k_best_pos,fops.insert_k_quick]
 
-instance = add_instance(algs.ALNS,"ALT_Annealing",removal_ops,insertion_ops)
+# escape algorithm takes about 20-30 seconds of the search
+# removal with random insert: 
+#   k_similar   : 6s
+#   k_costly    : 20s
+#   k_random    : 5s
+
+# insertion with random remove:
+# k_quick           : 34s
+# first_feasible    : 54s / 35s if break at infeasible
+# k_costly          : 138s
+removal_ops = [fops.remove_k_random,fops.remove_k_costly,fops.remove_k_similar]
+insertion_ops = [fops.insert_k_best_pos, fops.insert_first_feasible,fops.insert_k_quick]
+
+instance = add_instance(algs.ALNS,"ALNS",removal_ops,insertion_ops)
 header = [['',cur_case,cur_case,cur_case],
           ['Average objective','Best objective', 'Improvement (%)','Running time (seconds)']]
 df = pd.DataFrame(instance,columns=['Algorithm','Average objective','Best objective', 'Improvement (%)','Running time'])
 df.set_index('Algorithm',inplace=True)
 df.columns = header
-# print(df)
+print(df)
 
 ###############################
 

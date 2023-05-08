@@ -37,7 +37,7 @@ def find_vehicle_indices(solution,vehicle_id):
 def pick_random_vehicle_by_call(call):
     population = []
     for i in range(data.num_vehicles):
-        if call in data.valid_calls[i][1:]:
+        if call in data.valid_calls[i+1]:
             population.append(i)
     vehicle = random.choice(population)
     return vehicle
@@ -45,7 +45,7 @@ def pick_random_vehicle_by_call(call):
 def pick_random_vehicles_by_call(call):
     population = []
     for i in range(data.num_vehicles): # this can be done in preprocessing 
-        if call in data.valid_calls[i][1:]:
+        if call in data.valid_calls[i+1]:
             population.append(i)
     population = np.array(population)
     vehicles = np.random.choice(population,size=min(len(population),1+data.num_vehicles//5),replace=False)
@@ -54,7 +54,7 @@ def pick_random_vehicles_by_call(call):
 def get_valid_vehicles(call):
     population = []
     for i in range(data.num_vehicles): # this can be done in preprocessing 
-        if call in data.valid_calls[i][1:]:
+        if call in data.valid_calls[i+1]:
             population.append(i)
     population = np.array(population)
     return population
@@ -67,7 +67,6 @@ def pick_most_empty_vehicle_insert(solution,call):
         size = end - start
         sizes.append(size)
     weights = 1/(np.array(sizes)+1)
-    # print(vehicles,weights)
     v = random.choices(vehicles,weights)[0]
     return v
     
@@ -140,21 +139,23 @@ def put_in_dummy(solution,call):
     return solution
 
 def get_nodes(call1,call2):
-    c1_pickup_node = data.call_info[call1-1][1]
-    c2_pickup_node = data.call_info[call2-1][1]
-    c1_delivery_node = data.call_info[call1-1][2]
-    c2_delivery_node = data.call_info[call2-1][2]
+    c1_pickup_node = data.call_info[call1][0]
+    c2_pickup_node = data.call_info[call2][0]
+    c1_delivery_node = data.call_info[call1][1]
+    c2_delivery_node = data.call_info[call2][1]
     return c1_pickup_node, c2_pickup_node, c1_delivery_node, c2_delivery_node
 
 def get_travel_cost(node1,node2,vehicle_id):
     index = data.num_vehicles*((node1-1)*data.num_nodes+node2)-data.num_vehicles+vehicle_id
-    travel_cost = data.travel_times_and_cost[index][4]
+    # travel_cost = data.travel_times_and_cost[index][4]
+    travel_cost = data.travel_cost[index]
     return travel_cost
 
 def get_travel_time(node1,node2,vehicle_id):
     index = data.num_vehicles*((node1-1)*data.num_nodes+node2)-data.num_vehicles+vehicle_id
-    travel_cost = data.travel_times_and_cost[index][3]
-    return travel_cost
+    # travel_time = data.travel_times_and_cost[index][3]
+    travel_time = data.travel_time[index]
+    return travel_time
 
 def cost_relativity(call1,call2):
     c1_p,c2_p,c1_d,c2_d =get_nodes(call1,call2)
@@ -219,7 +220,7 @@ def find_k_expensive_calls(solution,k=1):
         call_costs.append([call,cost])
 
     for call in calls_in_dummy:
-        cost = data.call_info[call-1][4]
+        cost = data.call_info[call][3]
         call_costs.append([call,cost])
     call_costs = np.array(call_costs)
     costs_as_float = call_costs[:,1].astype(float)
@@ -378,10 +379,12 @@ def reinsert_at_optimal_position(sol,call, vehicle_id):
         return solution
     
 def find_pickup_start_index(vehicle_calls,call):
-    min_time_p = data.call_info[:,5][call-1]
+    # min_time_p = data.call_info[:,5][call-1]
+    min_time_p = data.call_info[call][4]
     last_c = 0
     for c in vehicle_calls:
-        max_time = data.call_info[:,6][c-1]
+        max_time = data.call_info[call][5]
+        # max_time = data.call_info[:,6][c-1]
         if max_time < min_time_p:
             last_c  = c
     if last_c == 0:
@@ -399,7 +402,8 @@ def can_be_infront(call1,call2):
     pickup_max_2 =data.call_info[call2-1,6]
     node = data.call_info[call2-1][1]
     index = data.num_vehicles*((previous_node-1)*data.num_nodes+node)-data.num_vehicles-1 #uses just first vehicle
-    travel_time = data.travel_times_and_cost[index][3]
+    # travel_time = data.travel_times_and_cost[index][3]
+    travel_time = data.travel_time[index]
     if delivery_max_1+travel_time<pickup_max_2: # + time between nodes of the calls
         return False
     return True
@@ -415,6 +419,55 @@ def find_elapsed_time(vehicle_calls,v_id): # undone
         else:
             # pickup
             pass
+
+def insert_first_feasible(sol,call):
+    solution = sol[:]
+    vs = get_valid_vehicles(call)
+    random.shuffle(vs)
+    for vehicle_id in vs:
+        vehicle_start_index,vehicle_end_index = find_vehicle_indices(solution,vehicle_id) 
+        vehicle_calls = solution[vehicle_start_index:vehicle_end_index] 
+        if vehicle_start_index==vehicle_end_index or not vehicle_calls:
+            solution.insert(vehicle_start_index,call)
+            solution.insert(vehicle_start_index,call)
+            return solution
+        
+        best_sol = solution[:]
+        feasible_offset = find_pickup_start_index(vehicle_calls,call) 
+        start = vehicle_start_index+feasible_offset 
+        best_sol.insert(start,call) 
+        best_sol.insert(start,call)
+        j = 0
+        
+        for i in range(start,vehicle_end_index+1): 
+            j += 1
+            base = solution[:]
+            base.insert(i,call)
+            feasible, failed_call, reason = check.isFeasibleVehicle(base,vehicle_id)
+            if reason == 'pickup' or reason == 'delivery':
+                continue
+
+            temp = base[:]
+            temp.insert(i+1,call)   
+            feasible, failed_call, reason = check.isFeasibleVehicle(temp,vehicle_id)
+            if reason == 'delivery' and failed_call == call:
+                break
+            if feasible: 
+                best_sol = temp
+                return best_sol
+
+            # for index in range(i+2,vehicle_end_index+2):
+            #     temp = base[:]
+            #     temp.insert(index,call)
+            #     feasible, failed_call, reason = check.isFeasibleVehicle(temp,vehicle_id)
+            #     if reason == 'delivery' and failed_call == call:
+            #         break
+            #     if feasible:
+            #         best_sol = temp
+            #         return best_sol
+    solution.append(call)
+    solution.append(call)
+    return solution
 
 
 def insert_at_optimal_position(sol,call, vehicle_id): # v total vehicles * k calls [1,qmax] 10000*data.vnum*kavg
@@ -436,7 +489,7 @@ def insert_at_optimal_position(sol,call, vehicle_id): # v total vehicles * k cal
     #0s:
     start = vehicle_start_index+feasible_offset 
     # print(solution[start:vehicle_end_index])
-    best_diff = data.call_info[call-1][4]
+    best_diff = data.call_info[call][3]
     best_sol.insert(start,call) 
     best_sol.insert(start,call)
     j = 0
@@ -444,10 +497,10 @@ def insert_at_optimal_position(sol,call, vehicle_id): # v total vehicles * k cal
     for i in range(start,vehicle_end_index+1): 
         j += 1
         base = solution[:]
-        base_diff = check.cost_insert(solution,call,i,vehicle_id) # 1.5 * i (about 5)
+        base_diff = check.cost_insert(solution,call,i,vehicle_id) # 1.5s * i (about 5)
         base.insert(i,call)
         feasible, failed_call, reason = check.isFeasibleVehicle(base,vehicle_id)
-        if reason == 'pickup':
+        if reason == 'pickup' or reason == 'delivery':
             continue
 
         temp = base[:]
@@ -456,7 +509,7 @@ def insert_at_optimal_position(sol,call, vehicle_id): # v total vehicles * k cal
         feasible, failed_call, reason = check.isFeasibleVehicle(temp,vehicle_id)
         if reason == 'delivery' and failed_call == call:
             break
-        if cost_diff < best_diff and feasible: # 2.7 * i
+        if cost_diff < best_diff and feasible: # 2.7s * i
             found_feasible = True
             best_sol = temp
             best_diff = cost_diff 
@@ -498,11 +551,11 @@ def insert_at_almost_optimal_position(sol,call, vehicle_id): # v total vehicles 
 
     found_feasible = False
     best_sol = solution[:]
-    feasible_offset = find_pickup_start_index(vehicle_calls,call) # 1 s
+    # feasible_offset = find_pickup_start_index(vehicle_calls,call) # 1 s
     #0s:
-    start = vehicle_start_index+feasible_offset 
+    start = vehicle_start_index#+feasible_offset 
     # print(solution[start:vehicle_end_index])
-    best_diff = data.call_info[call-1][4]
+    best_diff = data.call_info[call][3]
     best_sol.insert(start,call) 
     best_sol.insert(start,call)
     j = 0

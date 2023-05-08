@@ -7,6 +7,8 @@ import data
 def read_data(case):
     f = open("Data/"+case+".txt", "r")
     percent_count = 0
+    ntc_key = 0
+    ttc_key = 0
     for line in f:
         line = line.strip()
         if line[0] == "%":
@@ -26,33 +28,50 @@ def read_data(case):
             case 5: # for each vehicle, vehicle index, and then a list of calls that can be transported using that vehicle
                 line = line.split(',')
                 line = [eval(i) for i in line]
-                data.valid_calls.append(line)
+                key = line[0]
+                vals = line[1:]
+                pair = (key,vals)
+                data.valid_calls.append(pair)
             case 6: # for each call: call index, origin node, destination node, size, cost of not transporting, lowerbound timewindow for pickup, upper_timewindow for pickup, lowerbound timewindow for delivery, upper_timewindow for delivery
                 line = line.split(',')
                 line = [eval(i) for i in line]
-                data.call_info.append(line)
+                key = line[0]
+                vals = line[1:]
+                pair = (key,vals)
+                data.call_info.append(pair)
             case 7: # travel times and costs: vehicle, origin node, destination node, travel time (in hours), travel cost (in Euro)
                 line = line.split(',')
                 line = [eval(i) for i in line]
-                data.travel_times_and_cost.append(line)
+                time = line[3]
+                cost = line[4]
+                time_pair = (ttc_key,time)
+                cost_pair = (ttc_key,cost)
+                data.travel_cost.append(cost_pair)
+                data.travel_time.append(time_pair)
+                ttc_key += 1
             case 8: # node times and costs: vehicle, call, origin node time (in hours), origin node costs (in Euro), destination node time (in hours), destination node costs (in Euro)
                 line = line.split(',')
                 line = [eval(i) for i in line]
-                data.node_times_and_cost.append(line)
-
+                # print(line)
+                pair = (ntc_key,line)
+                data.node_times_and_cost.append(pair)
+                ntc_key+=1
     data.vehicle_info = np.array(data.vehicle_info)
-    data.call_info = np.array(data.call_info)
-    data.travel_times_and_cost = np.array(data.travel_times_and_cost)
-    data.node_times_and_cost = np.array(data.node_times_and_cost)
+    data.call_info = dict(data.call_info)
+    data.valid_calls = dict(data.valid_calls)
+    data.travel_cost = dict(data.travel_cost)
+    data.travel_time = dict(data.travel_time)
+    data.node_times_and_cost = dict(data.node_times_and_cost)
 
 def generate_data():
-    call_info = pd.DataFrame(data.call_info)
-    call_info.columns = ["call_index", "origin_node", "destination_node", "size", "cost_not_transporting", "lowerbound_timewindow_pickup", "upper_timewindow_pickup", "lowerbound_timewindow_delivery", "upper_timewindow_delivery"]
-    data.pickup_sorted_by_time = list(call_info.sort_values(by="upper_timewindow_pickup").call_index.values)
-    data.largest_travel_cost = data.travel_times_and_cost[:,4].max()
-    data.largest_travel_time = data.travel_times_and_cost[:,3].max()
-    data.latest_pickup_time = data.call_info[:,6].max()
-    data.latest_delivery_time = data.call_info[:,8].max()
+    call_info = pd.DataFrame.from_dict(data.call_info,orient="index")
+    call_info.columns = ["origin_node", "destination_node", "size", "cost_not_transporting", "lowerbound_timewindow_pickup", "upper_timewindow_pickup", "lowerbound_timewindow_delivery", "upper_timewindow_delivery"]
+    data.pickup_sorted_by_time = list(call_info.sort_values(by="upper_timewindow_pickup").index.values)
+    # data.largest_travel_cost = data.travel_times_and_cost[:,3].max()
+    # data.largest_travel_time = data.travel_times_and_cost[:,2].max()
+    # print(call_info)
+    # data.latest_pickup_time = data.call_info[:,5].max()
+    # data.latest_delivery_time = data.call_info[:,7].max()
     generate_call_relativity()
     generate_vehicle_similarity()
 
@@ -82,21 +101,21 @@ def generate_call_relativity():
     data.call_relativity = call_r_df.to_numpy()
 
 def time_pickup_relativity(call1,call2):
-    pickup_max_1 =data.call_info[call1-1,6]
-    pickup_max_2 =data.call_info[call2-1,6]
+    pickup_max_1 =data.call_info[call1][5]
+    pickup_max_2 =data.call_info[call2][5]
     diff = (pickup_max_1-pickup_max_2)**2
 
     return diff
 
 def time_delivery_relativity(call1,call2):
-    delivery_max_1 =data.call_info[call1-1,8]
-    delivery_max_2 =data.call_info[call2-1,8]
+    delivery_max_1 =data.call_info[call1][7]
+    delivery_max_2 =data.call_info[call2][7]
     diff = (delivery_max_1-delivery_max_2)**2
     return diff
 
 def size_relativity(call1,call2):
-    s1 = data.call_info[call1-1,3]
-    s2 = data.call_info[call2-1,3]
+    s1 = data.call_info[call1][2]
+    s2 = data.call_info[call2][2]
     size_r = abs(s1-s2)/max(s1,s2)
     return size_r
 
@@ -104,7 +123,7 @@ def vehicle_compatibility(call1,call2):
     call1_compatible_vehicles = []
     call2_compatible_vehicles = []
     for vehicle_id in range(data.num_vehicles):
-        valid = data.valid_calls[vehicle_id][1:]
+        valid = data.valid_calls[vehicle_id+1]
         if call1 in valid:
             call1_compatible_vehicles.append(vehicle_id)
         if call2 in valid:
